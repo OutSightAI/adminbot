@@ -6,6 +6,7 @@
 // matters). Nothing here knows what any route means.
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { AdminBotServiceResponse } from "../kernel/service.js";
+import { assertOpenApiBody } from "./openapi.js";
 
 // Typed API requests are small. Routes carrying files pass a larger explicit ceiling; making the
 // ordinary default finite prevents a newly added or anonymous JSON route from silently buffering
@@ -37,7 +38,9 @@ export async function readJson(
     }
     chunks.push(buffer);
   }
-  return JSON.parse(Buffer.concat(chunks).toString("utf8"));
+  const body: unknown = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+  assertOpenApiBody(req, body);
+  return body;
 }
 
 /**
@@ -61,7 +64,9 @@ export async function readJsonOrEmpty(
     chunks.push(buffer);
   }
   const raw = Buffer.concat(chunks).toString("utf8").trim();
-  return raw ? JSON.parse(raw) : {};
+  const body: unknown = raw ? JSON.parse(raw) : {};
+  assertOpenApiBody(req, body);
+  return body;
 }
 
 /** Thrown by `readJson` past its cap, so the route answers 413 rather than dying on a parse. */

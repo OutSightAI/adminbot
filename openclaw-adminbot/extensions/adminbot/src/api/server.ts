@@ -1,5 +1,6 @@
 import { randomUUID, timingSafeEqual } from "node:crypto";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
+import adminBotOpenApi from "../../openapi.generated.json" with { type: "json" };
 import { createArxivProbe } from "../connectors/arxiv.js";
 import { createOllamaEmbedder } from "../connectors/embeddings.js";
 import { createIpinfoGeolocator } from "../connectors/ip-geolocation.js";
@@ -137,6 +138,7 @@ import {
   memberSheetSource,
   resolveMemberSheetConfig,
 } from "./member-sheet-config.js";
+import { OpenApiInputError } from "./openapi.js";
 import {
   previewCallSheetPush,
   proposeCallSheetPush,
@@ -165,6 +167,7 @@ import {
   readMemberSheet,
   readRosterSheet,
 } from "./server.member-sheet.js";
+import { handlePaperProgressRoute } from "./server.paper-progress.js";
 import {
   createPublicDeadlineLimiter,
   handlePublicDeadlineProposal,
@@ -904,6 +907,10 @@ export function createAdminBotMockService(options: AdminBotMockServiceOptions = 
     try {
       await routeRequest(req, res, ctx);
     } catch (error) {
+      if (error instanceof OpenApiInputError) {
+        sendJson(res, 400, { error: { message: error.message } });
+        return;
+      }
       if (error instanceof PayloadTooLargeError) {
         sendJson(res, 413, { error: { message: error.message } });
         return;
@@ -988,6 +995,10 @@ async function routeRequest(req: IncomingMessage, res: ServerResponse, ctx: Admi
       return;
     }
     sendHtml(res, 200, renderAdminBotWebUi());
+    return;
+  }
+  if (req.method === "GET" && url.pathname === "/openapi.json") {
+    sendJson(res, 200, adminBotOpenApi);
     return;
   }
   if (req.method === "GET" && url.pathname === "/adminbot") {
@@ -2236,7 +2247,7 @@ async function handleAuthenticatedRoute(
       sendJson(res, 503, { error: { message: "reimbursement workflow is not configured" } });
       return;
     }
-    const body = (await readJson(req)) as AdminBotReimbursementRequest;
+    const body = (await readJson(req)) as Pick<AdminBotReimbursementRequest, "draft" | "funder">;
     try {
       sendJson(res, 200, await ctx.reimbursementWorkflow.generate(body));
     } catch (error) {
@@ -4363,6 +4374,18 @@ async function handleAuthenticatedRoute(
         until: String(body.until ?? ""),
       }),
     );
+    return;
+  }
+  const paperProgress = /^\/papers\/([^/]+)\/progress$/u.exec(url.pathname);
+  if (req.method === "PATCH" && paperProgress?.[1]) {
+    if (principal.kind !== "member") {
+      sendJson(res, 401, { error: { message: "member session required" } });
+      return;
+    }
+    await handlePaperProgressRoute(req, res, service, decodeURIComponent(paperProgress[1]), {
+      memberId: principal.member.id,
+      privileged: isPrivileged(principal),
+    });
     return;
   }
   const paper = /^\/papers\/([^/]+)$/u.exec(url.pathname);

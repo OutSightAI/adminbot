@@ -1864,6 +1864,8 @@ export const adminBotPaperSteps = [
 
 export type AdminBotPaperStep = (typeof adminBotPaperSteps)[number];
 
+export type AdminBotPaperProgressUpdate = { current_step: AdminBotPaperStep };
+
 export const adminBotPaperTimelineDependencyGroups = [
   "ideation",
   "writing",
